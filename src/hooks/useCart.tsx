@@ -190,7 +190,7 @@ interface CartContextValue {
   clearCart: () => void;
   openCheckout: () => void;
   closeCheckout: () => void;
-  completeSale: (paymentMethod: PaymentMethod) => void;
+  completeSale: (paymentMethod: PaymentMethod) => Promise<void>;
   closeReceipt: () => void;
   newOrder: () => void;
 }
@@ -236,9 +236,39 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     []
   );
   const completeSale = useCallback(
-    (paymentMethod: PaymentMethod) =>
-      dispatch({ type: "COMPLETE_SALE", paymentMethod }),
-    []
+    async (paymentMethod: PaymentMethod) => {
+      const { subtotal, taxAmount, totalAmount } = calculateCartTotals(
+        state.items
+      );
+
+      // Persist the sale to the database before updating local state
+      try {
+        await fetch("/api/sales", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            saleNumber: state.orderNumber,
+            subtotal,
+            taxAmount,
+            totalAmount,
+            paymentMethod,
+            status: "completed",
+            items: state.items.map((item) => ({
+              productId: item.productId,
+              productName: item.name,
+              quantity: item.quantity,
+              unitPrice: item.price,
+              subtotal: item.price * item.quantity,
+            })),
+          }),
+        });
+      } catch (error) {
+        console.error("Failed to persist sale to database:", error);
+      }
+
+      dispatch({ type: "COMPLETE_SALE", paymentMethod });
+    },
+    [state.items, state.orderNumber]
   );
   const closeReceipt = useCallback(
     () => dispatch({ type: "CLOSE_RECEIPT" }),
